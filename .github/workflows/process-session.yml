@@ -10,6 +10,7 @@ on:
       event:
         description: 'Event name (e.g. Australian Grand Prix)'
         required: true
+        default: ''
       session:
         description: 'Session type: R, Q, FP1, FP2, FP3, S, SQ'
         required: true

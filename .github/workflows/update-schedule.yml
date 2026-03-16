@@ -2,12 +2,13 @@ name: Update Schedule
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # every 6 hours — keeps session availability fresh
+    - cron: '0 */6 * * *'
   workflow_dispatch:
     inputs:
       year:
         description: 'Year to update (leave empty for all years 2018-current)'
         required: false
+        default: ''
 
 jobs:
   update:
