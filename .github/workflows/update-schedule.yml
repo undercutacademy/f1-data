@@ -1,0 +1,43 @@
+name: Update Schedule
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours — keeps session availability fresh
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Year to update (leave empty for all years 2018-current)'
+        required: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Update schedule
+        run: |
+          if [ -n "${{ github.event.inputs.year }}" ]; then
+            python scripts/update_schedule.py "${{ github.event.inputs.year }}"
+          else
+            python scripts/update_schedule.py
+          fi
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "schedule: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
