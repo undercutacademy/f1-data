@@ -12,7 +12,14 @@ from datetime import datetime, timedelta, timezone
 
 
 def session_cached(root, year, event_slug, session_type):
-    return (root / str(year) / event_slug / session_type / "drivers.json").exists()
+    drivers_file = root / str(year) / event_slug / session_type / "drivers.json"
+    if not drivers_file.exists():
+        return False
+    try:
+        with open(drivers_file) as f:
+            return len(json.load(f)) > 0
+    except (ValueError, OSError):
+        return False
 
 
 def run(year, event_name, session_type):
