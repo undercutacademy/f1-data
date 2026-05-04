@@ -79,14 +79,23 @@ def update_year(year: int, root: Path):
                     sdate = session_date_map.get(alias)
                     if sdate is not None:
                         break
-            available = True
             session_date_str = ""
             if sdate is not None:
                 if hasattr(sdate, "tzinfo") and sdate.tzinfo is None:
                     sdate = sdate.tz_localize("UTC")
                 session_date_str = str(sdate)[:16]
-                if sdate > today:
+
+            # `available` reflects whether processed data is on disk so the
+            # frontend only surfaces sessions a user can actually open.
+            drivers_file = root / str(year) / event_slug / s / "drivers.json"
+            available = False
+            if drivers_file.exists():
+                try:
+                    with open(drivers_file) as df:
+                        available = len(json.load(df)) > 0
+                except (ValueError, OSError):
                     available = False
+
             sessions_out.append({
                 "type": s,
                 "name": full_name,

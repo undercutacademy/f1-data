@@ -62,21 +62,23 @@ def main():
             with open(sessions_file) as f:
                 sessions = json.load(f)
 
+            now = datetime.now(timezone.utc)
             for s in sessions:
-                if not s.get("available", False):
-                    continue
-
-                # Only process sessions from the last 14 days
+                # Decide what to process from the session date directly,
+                # not from `available` (which now means "data on disk").
                 date_str = s.get("date", "")
-                if date_str:
-                    try:
-                        dt = datetime.fromisoformat(date_str.replace(" ", "T"))
-                        if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        if dt < cutoff:
-                            continue
-                    except ValueError:
-                        pass
+                if not date_str:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(date_str.replace(" ", "T"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    continue
+                if dt > now:
+                    continue  # session hasn't happened yet
+                if dt < cutoff:
+                    continue  # older than the 14-day window
 
                 stype = s["type"]
                 if session_cached(root, year, slug, stype):

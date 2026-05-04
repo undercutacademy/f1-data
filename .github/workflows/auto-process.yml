@@ -31,13 +31,26 @@ jobs:
         run: python scripts/auto_process.py
 
       - name: Commit and push
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git diff --staged --quiet || git commit -m "auto: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          if git diff --staged --quiet; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "auto: $(date -u '+%Y-%m-%d %H:%M UTC')"
           for i in 1 2 3 4 5; do
-            git pull --rebase && git push && break
+            git pull --rebase && git push && {
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            }
             echo "Push attempt $i failed, retrying in 10s..."
             sleep 10
           done
+          exit 1
+
+      - name: Purge jsDelivr cache
+        if: steps.commit.outputs.pushed == 'true'
+        run: bash scripts/purge_jsdelivr.sh

@@ -11,11 +11,31 @@ import json
 import sys
 import subprocess
 import fastf1
+from datetime import datetime, timezone
 from pathlib import Path
 
 
 def session_cached(root, year, event_slug, session_type):
-    return (root / str(year) / event_slug / session_type / "drivers.json").exists()
+    drivers_file = root / str(year) / event_slug / session_type / "drivers.json"
+    if not drivers_file.exists():
+        return False
+    try:
+        with open(drivers_file) as f:
+            return len(json.load(f)) > 0
+    except (ValueError, OSError):
+        return False
+
+
+def session_in_past(date_str: str) -> bool:
+    if not date_str:
+        return False
+    try:
+        dt = datetime.fromisoformat(date_str.replace(" ", "T"))
+    except ValueError:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt <= datetime.now(timezone.utc)
 
 
 def run(year, event_name, session_type):
@@ -74,7 +94,7 @@ def main():
             sessions = json.load(f)
 
         for s in sessions:
-            if not s.get("available", False):
+            if not session_in_past(s.get("date", "")):
                 continue
 
             stype = s["type"]
