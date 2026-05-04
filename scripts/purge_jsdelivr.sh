@@ -9,7 +9,10 @@ REPO="undercutacademy/f1-data"
 BRANCH="master"
 BATCH_SIZE=100  # jsDelivr accepts ~200 paths/request; keep margin
 
-mapfile -t changed < <(git diff --name-only HEAD~1 HEAD | grep -E '\.json$' || true)
+changed=()
+while IFS= read -r line; do
+  [ -n "$line" ] && changed+=("$line")
+done < <(git diff --name-only HEAD~1 HEAD | grep -E '\.json$' || true)
 
 if [ "${#changed[@]}" -eq 0 ]; then
   echo "No JSON files changed; nothing to purge."
