@@ -40,6 +40,10 @@ jobs:
           fi
           python scripts/backfill_year.py $ARGS
 
+      - name: Refresh sessions.json available flags
+        if: always()
+        run: python scripts/update_schedule.py "${{ github.event.inputs.year }}"
+
       - name: Commit and push
         id: commit
         run: |
