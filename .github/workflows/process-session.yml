@@ -16,9 +16,14 @@ on:
         required: true
         default: 'R'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.year }}-${{ github.event.inputs.event }}-${{ github.event.inputs.session }}
+  cancel-in-progress: false
+
 jobs:
   process:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:

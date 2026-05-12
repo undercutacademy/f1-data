@@ -5,9 +5,14 @@ on:
     - cron: '0 */2 * * *'   # every 2 hours
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   auto-process:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
