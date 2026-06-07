@@ -12,14 +12,22 @@ from datetime import datetime, timedelta, timezone
 
 
 def session_cached(root, year, event_slug, session_type):
-    drivers_file = root / str(year) / event_slug / session_type / "drivers.json"
+    # A session is only "cached" if it has BOTH drivers.json AND telemetry files.
+    # FastF1 sometimes returns results-only data when telemetry hasn't backfilled
+    # yet (typical for sessions that finished in the last few hours). Without the
+    # telemetry check, the first partial run would lock out all future retries.
+    session_dir = root / str(year) / event_slug / session_type
+    drivers_file = session_dir / "drivers.json"
+    tel_dir = session_dir / "telemetry"
     if not drivers_file.exists():
         return False
     try:
         with open(drivers_file) as f:
-            return len(json.load(f)) > 0
+            if len(json.load(f)) == 0:
+                return False
     except (ValueError, OSError):
         return False
+    return tel_dir.exists() and any(tel_dir.glob("*.json"))
 
 
 def run(year, event_name, session_type):
