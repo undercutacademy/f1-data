@@ -2,7 +2,8 @@ name: Auto-Process New Sessions
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # every 2 hours
+    - cron: '*/15 * * * 5,6,0'  # every 15 min Fri/Sat/Sun (race weekends)
+    - cron: '0 */2 * * 1-4'     # every 2h Mon-Thu (catch-all)
   workflow_dispatch:
 
 concurrency:
