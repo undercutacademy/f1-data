@@ -45,7 +45,7 @@ def run(year, event_name, session_type):
     result = subprocess.run(
         [sys.executable, str(Path(__file__).parent / "process_session.py"),
          str(year), event_name, session_type],
-        timeout=600,  # 10 min max per session
+        timeout=1800,  # 30 min max per session
     )
     return result.returncode == 0
 
@@ -64,6 +64,8 @@ def main():
         if idx + 1 < len(sys.argv):
             session_filter = set(sys.argv[idx + 1].split(","))
             print(f"Filtering to sessions: {session_filter}")
+
+    force = "--force" in sys.argv
 
     root = Path(__file__).parent.parent
 
@@ -102,7 +104,7 @@ def main():
             if session_filter and stype not in session_filter:
                 continue
 
-            if session_cached(root, year, slug, stype):
+            if not force and session_cached(root, year, slug, stype):
                 skipped.append(f"{name} {stype}")
                 continue
 

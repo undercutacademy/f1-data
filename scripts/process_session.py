@@ -155,6 +155,7 @@ def process_session(year: int, event_name: str, session_type: str):
                         "time": np.round(_interp(dist, time_s, common_dist), 4).tolist(),
                         "x": np.round(_interp(dist, tel["X"].values, common_dist) * 0.1, 1).tolist() if "X" in tel.columns else [],
                         "y": np.round(_interp(dist, tel["Y"].values, common_dist) * 0.1, 1).tolist() if "Y" in tel.columns else [],
+                        "z": np.round(_interp(dist, tel["Z"].values.astype(float) * 0.1, common_dist), 2).tolist() if "Z" in tel.columns else [],
                     }
 
                     with open(tel_dir / f"{abbr}_{lap_num}.json", "w") as f:
