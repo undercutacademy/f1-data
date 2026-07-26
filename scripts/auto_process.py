@@ -11,6 +11,18 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 
+# A session becomes eligible only after start + buffer, so we never ingest a
+# LIVE session: FastF1 happily returns partial laps mid-session, which would
+# satisfy session_cached and freeze the session half-done (2026-07-26 incident).
+SESSION_END_BUFFER_HOURS = {"R": 2.5}
+DEFAULT_END_BUFFER_HOURS = 1.5
+
+
+def session_likely_over(dt, session_type, now):
+    buffer_h = SESSION_END_BUFFER_HOURS.get(session_type, DEFAULT_END_BUFFER_HOURS)
+    return dt + timedelta(hours=buffer_h) <= now
+
+
 def session_cached(root, year, event_slug, session_type):
     # A session is only "cached" if it has BOTH drivers.json AND telemetry files.
     # FastF1 sometimes returns results-only data when telemetry hasn't backfilled
@@ -83,12 +95,12 @@ def main():
                         dt = dt.replace(tzinfo=timezone.utc)
                 except ValueError:
                     continue
-                if dt > now:
-                    continue  # session hasn't happened yet
                 if dt < cutoff:
                     continue  # older than the 14-day window
 
                 stype = s["type"]
+                if not session_likely_over(dt, stype, now):
+                    continue  # not started, or possibly still running
                 if session_cached(root, year, slug, stype):
                     print(f"  Already cached: {year} {name} {stype}")
                     continue

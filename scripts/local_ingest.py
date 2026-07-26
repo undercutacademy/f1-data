@@ -80,7 +80,10 @@ def session_cached(year: int, slug: str, stype: str) -> bool:
 
 
 def pending_sessions():
-    """(date, year, event_name, session_type) for past, uncached sessions <14d old."""
+    """(date, year, event_name, session_type) for ended, uncached sessions <14d old."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from auto_process import session_likely_over
+
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=14)
     out = []
@@ -95,8 +98,10 @@ def pending_sessions():
                 continue
             for s in json.loads(sf.read_text(encoding="utf-8")):
                 dt = parse_date(s.get("date", ""))
-                if not dt or dt > now or dt < cutoff:
+                if not dt or dt < cutoff:
                     continue
+                if not session_likely_over(dt, s["type"], now):
+                    continue  # not started, or possibly still running
                 if not session_cached(year, ev["slug"], s["type"]):
                     out.append((dt, year, ev["name"], s["type"]))
     return sorted(out, reverse=True)
