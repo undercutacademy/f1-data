@@ -1,9 +1,14 @@
 name: Auto-Process New Sessions
 
+# NOTE: the schedule is intentionally DISABLED. Since ~2026-07-17
+# livetiming.formula1.com rejects datacenter/GitHub-Actions IPs, so this runner
+# cannot fetch laps or telemetry - it only ever wrote drivers.json stubs (driver
+# lists come from the unblocked Jolpica API) plus noise commits, which made
+# sessions look present on the CDN while carrying no usable data.
+# Ingestion now runs locally from a residential IP via ingest.bat /
+# scripts/local_ingest.py (Windows scheduled task "F1 Data Ingest").
+# workflow_dispatch is kept so this can be re-run by hand if the block is lifted.
 on:
-  schedule:
-    - cron: '*/15 * * * 5,6,0'  # every 15 min Fri/Sat/Sun (race weekends)
-    - cron: '0 */2 * * 1-4'     # every 2h Mon-Thu (catch-all)
   workflow_dispatch:
 
 concurrency:

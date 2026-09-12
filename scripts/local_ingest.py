@@ -61,6 +61,50 @@ def acquire_lock() -> bool:
         return False
 
 
+# ---------------------------------------------------------------- remote sync
+
+def sync_from_remote() -> bool:
+    """Fast-forward the working tree to origin/master before deciding what's pending.
+
+    pending_sessions() reads events.json / sessions.json from the LOCAL tree, so a
+    stale checkout has no directory for a new Grand Prix and reports "nothing to do"
+    forever. Because the only other fetch lived in commit_push_purge() (never reached
+    on the early-return path), falling behind was self-reinforcing: no new events ->
+    no pending work -> no fetch -> still no new events. Sync first to break that.
+
+    Merges rather than rebases, and never stashes, per the safety rules above.
+    """
+    f = git("fetch", "origin", "master", check=False)
+    if f.returncode != 0:
+        log(f"Fetch failed (non-fatal, continuing offline): {f.stderr.strip()[:120]}")
+        return True
+
+    behind = git("rev-list", "--count", "HEAD..origin/master", check=False).stdout.strip()
+    if not behind or behind == "0":
+        return True
+
+    # Only untracked files (e.g. logs, Future_Updates/) are safe to leave in place;
+    # tracked modifications mean a half-written ingest we must not merge over.
+    dirty = [
+        l for l in git("status", "--porcelain").stdout.splitlines()
+        if l and not l.startswith("??")
+    ]
+    if dirty:
+        log(f"{behind} commits behind but tree has local changes - skipping sync.")
+        return True
+
+    log(f"{behind} commits behind origin/master - merging (never rebase here).")
+    m = git("merge", "--ff-only", "origin/master", check=False)
+    if m.returncode != 0:
+        m = git("merge", "origin/master", "-m",
+                "Merge remote changes (local ingest sync)", check=False)
+    if m.returncode != 0:
+        log(f"SYNC MERGE FAILED: {m.stderr.strip()[:200]} - resolve manually.")
+        return False
+    log(f"Synced to {git('rev-parse', '--short', 'HEAD').stdout.strip()}")
+    return True
+
+
 # ---------------------------------------------------------------- pending work
 
 def parse_date(date_str: str):
@@ -226,6 +270,8 @@ def main() -> int:
     if not acquire_lock():
         return 0
     try:
+        if not sync_from_remote():
+            return 1
         pend = pending_sessions()
         if not pend:
             log("No pending sessions - nothing to do.")
