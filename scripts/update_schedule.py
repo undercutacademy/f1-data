@@ -87,14 +87,24 @@ def update_year(year: int, root: Path):
 
             # `available` reflects whether processed data is on disk so the
             # frontend only surfaces sessions a user can actually open.
-            drivers_file = root / str(year) / event_slug / s / "drivers.json"
+            # drivers.json alone is NOT enough: the blocked GitHub-Actions runner
+            # could write a driver list (from the unblocked Jolpica API) with no
+            # session data behind it, which made dead sessions selectable.
+            # Require per-driver laps, which is what the lap selector needs. Do
+            # NOT require telemetry/: some older seasons were processed laps-only
+            # and are still usable, so demanding it would hide working sessions.
+            session_dir = root / str(year) / event_slug / s
+            drivers_file = session_dir / "drivers.json"
             available = False
             if drivers_file.exists():
                 try:
                     with open(drivers_file) as df:
-                        available = len(json.load(df)) > 0
+                        has_drivers = len(json.load(df)) > 0
                 except (ValueError, OSError):
-                    available = False
+                    has_drivers = False
+                laps_dir = session_dir / "laps"
+                has_laps = laps_dir.is_dir() and any(laps_dir.glob("*.json"))
+                available = has_drivers and has_laps
 
             sessions_out.append({
                 "type": s,

@@ -175,6 +175,22 @@ def run_auto_process() -> bool:
     return r.returncode == 0
 
 
+def run_update_schedule() -> bool:
+    """Refresh events.json / sessions.json so `available` reflects what we just wrote.
+
+    process_session.py never touches sessions.json, and the frontend filters its
+    session dropdown on `available`. Without this, freshly ingested telemetry sat
+    on the CDN unreachable until the 6-hourly schedule workflow happened to run.
+    """
+    log("Refreshing schedule (available flags)...")
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "update_schedule.py")], cwd=ROOT
+    )
+    if r.returncode != 0:
+        log("update_schedule failed (non-fatal); available flags may lag.")
+    return r.returncode == 0
+
+
 def changed_json_files():
     out = git("status", "--porcelain").stdout
     files = []
@@ -292,6 +308,7 @@ def main() -> int:
                 log("Wait budget exhausted; processing whatever is ready.")
 
         run_auto_process()  # rc ignored: partial success still worth committing
+        run_update_schedule()  # flip `available` for whatever telemetry just landed
         return 0 if commit_push_purge() else 1
     finally:
         LOCK.unlink(missing_ok=True)
