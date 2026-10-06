@@ -83,14 +83,18 @@ def sync_from_remote() -> bool:
     if not behind or behind == "0":
         return True
 
-    # Only untracked files (e.g. logs, Future_Updates/) are safe to leave in place;
-    # tracked modifications mean a half-written ingest we must not merge over.
-    dirty = [
-        l for l in git("status", "--porcelain").stdout.splitlines()
+    # Only refuse when a locally modified file is also touched upstream - that could be
+    # a half-written ingest we must not merge over. Blocking on ANY tracked change
+    # deadlocked for days (2026-10): an uncommitted edit to Future_Updates/*.md hid a
+    # new Grand Prix, so nothing was pending, so nothing committed the edit.
+    dirty = {
+        l[3:].strip().strip('"') for l in git("status", "--porcelain").stdout.splitlines()
         if l and not l.startswith("??")
-    ]
-    if dirty:
-        log(f"{behind} commits behind but tree has local changes - skipping sync.")
+    }
+    incoming = set(git("diff", "--name-only", "HEAD", "origin/master").stdout.splitlines())
+    if dirty & incoming:
+        log(f"{behind} commits behind but local changes overlap upstream "
+            f"({', '.join(sorted(dirty & incoming)[:3])}) - skipping sync.")
         return True
 
     log(f"{behind} commits behind origin/master - merging (never rebase here).")
