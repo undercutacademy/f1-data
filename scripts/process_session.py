@@ -5,9 +5,15 @@ Process a FastF1 session and write:
   laps/{DRIVER}.json
   telemetry/{DRIVER}_{LAP}.json   (pre-normalized, 500 pts)
   corners.json
+  analysis.json                   (every lap: timing, tyres, position, status; results)
+  weather.json                    (session weather samples, if any)
 
 Usage:
     python scripts/process_session.py <year> "<event name>" <session_type>
+
+Environment:
+    F1_DATA_OUT       output root (default: repo root, i.e. parent of scripts/)
+    FASTF1_CACHE_DIR  FastF1 cache dir (default: /tmp/fastf1_cache)
 """
 
 import fastf1
@@ -20,6 +26,20 @@ import pandas as pd
 from pathlib import Path
 
 NUM_POINTS = 500
+ANALYSIS_VERSION = 1
+
+
+def data_root() -> Path:
+    """Output root: $F1_DATA_OUT if set, else the repo root."""
+    env = os.environ.get("F1_DATA_OUT")
+    return Path(env) if env else Path(__file__).parent.parent
+
+
+def enable_cache() -> None:
+    """Enable the FastF1 cache at $FASTF1_CACHE_DIR (default /tmp/fastf1_cache)."""
+    cache_dir = Path(os.environ.get("FASTF1_CACHE_DIR") or "/tmp/fastf1_cache")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    fastf1.Cache.enable_cache(str(cache_dir))
 
 
 def slugify(name: str) -> str:
@@ -43,16 +63,163 @@ def _nearest_before(dist, vals, common_dist):
     return vals[idx]
 
 
-def process_session(year: int, event_name: str, session_type: str):
-    root = Path(__file__).parent.parent
+def _driver_ahead(dist, tel, common_dist) -> list:
+    """DriverAhead driver-number strings, nearest-before sampled ("" if missing)."""
+    if "DriverAhead" not in tel.columns:
+        return [""] * len(common_dist)
+    raw = _nearest_before(dist, tel["DriverAhead"].values, common_dist)
+    return ["" if (v is None or pd.isna(v)) else str(v) for v in raw]
 
-    cache_dir = Path("/tmp/fastf1_cache")
-    cache_dir.mkdir(exist_ok=True)
-    fastf1.Cache.enable_cache(str(cache_dir))
+
+def _dist_ahead(dist, tel, common_dist) -> list:
+    """DistanceToDriverAhead (m), interpolated over non-NaN source points only;
+    null where the nearest-before source sample is NaN."""
+    n = len(common_dist)
+    if "DistanceToDriverAhead" not in tel.columns:
+        return [None] * n
+    src = pd.to_numeric(tel["DistanceToDriverAhead"], errors="coerce").values.astype(float)
+    ok = ~np.isnan(src)
+    if not ok.any():
+        return [None] * n
+    vals = np.round(np.interp(common_dist, dist[ok], src[ok]), 1)
+    nan_at = np.isnan(_nearest_before(dist, src, common_dist))
+    return [None if m else float(v) for v, m in zip(vals, nan_at)]
+
+
+# ── analysis.json / weather.json (shared with backfill_analysis.py) ──────────
+
+def _secs(td, nd=3):
+    """Timedelta -> seconds rounded to nd, or None."""
+    if td is None or pd.isna(td):
+        return None
+    return round(td.total_seconds(), nd)
+
+
+def _num(v, nd=None):
+    """Number -> float rounded to nd (int when nd == 0), or None for NaN/missing."""
+    if v is None or pd.isna(v):
+        return None
+    v = float(v)
+    if nd is None:
+        return v
+    return int(round(v)) if nd == 0 else round(v, nd)
+
+
+def _int(v):
+    return None if v is None or pd.isna(v) else int(v)
+
+
+def _str(v):
+    return "" if v is None or pd.isna(v) else str(v)
+
+
+def _bool(v):
+    return None if v is None or pd.isna(v) else bool(v)
+
+
+def build_analysis(session, has_telemetry) -> dict:
+    """Every lap of every driver plus classification.
+
+    has_telemetry(abbr, lap_number) -> bool says whether telemetry/<abbr>_<lap>.json exists.
+    """
+    laps = []
+    has_deleted = "Deleted" in session.laps.columns
+    for _, lap in session.laps.iterrows():
+        drv = _str(lap.get("Driver"))
+        lap_num = _int(lap.get("LapNumber"))
+        compound = lap.get("Compound")
+        laps.append({
+            "driver": drv,
+            "lap_number": lap_num,
+            "lap_time": _secs(lap.get("LapTime")),
+            "s1": _secs(lap.get("Sector1Time")),
+            "s2": _secs(lap.get("Sector2Time")),
+            "s3": _secs(lap.get("Sector3Time")),
+            "compound": None if compound is None or pd.isna(compound) else str(compound),
+            "tyre_life": _int(lap.get("TyreLife")),
+            "stint": _int(lap.get("Stint")),
+            "position": _int(lap.get("Position")),
+            "pit_in": bool(pd.notna(lap.get("PitInTime"))),
+            "pit_out": bool(pd.notna(lap.get("PitOutTime"))),
+            "session_time": _secs(lap.get("Time")),
+            "track_status": _str(lap.get("TrackStatus")),
+            "is_accurate": bool(_bool(lap.get("IsAccurate"))),
+            "deleted": _bool(lap.get("Deleted")) if has_deleted else None,
+            "has_telemetry": bool(lap_num is not None and has_telemetry(drv, lap_num)),
+        })
+
+    results = []
+    for _, row in session.results.iterrows():
+        results.append({
+            "driver": _str(row.get("Abbreviation")),
+            "position": _int(row.get("Position")),
+            "grid": _int(row.get("GridPosition")),
+            "status": _str(row.get("Status")),
+            "points": _num(row.get("Points")),
+            "classified": _str(row.get("ClassifiedPosition")),
+        })
+
+    return {"version": ANALYSIS_VERSION, "laps": laps, "results": results}
+
+
+def build_weather(session):
+    """Column arrays of session weather samples, or None if there are none."""
+    try:
+        w = session.weather_data
+    except Exception:
+        return None
+    if w is None or w.empty:
+        return None
+
+    def col(name, nd):
+        if name not in w.columns:
+            return [None] * len(w)
+        return [_num(v, nd) for v in w[name].values]
+
+    rain = [None if pd.isna(v) else int(bool(v)) for v in w["Rainfall"].values] \
+        if "Rainfall" in w.columns else [None] * len(w)
+    return {
+        "time": [_secs(t, 1) for t in w["Time"]],
+        "air_temp": col("AirTemp", 1),
+        "track_temp": col("TrackTemp", 1),
+        "humidity": col("Humidity", 1),
+        "pressure": col("Pressure", 1),
+        "wind_speed": col("WindSpeed", 1),
+        "wind_direction": col("WindDirection", 0),
+        "rainfall": rain,
+    }
+
+
+def _write_json(path: Path, obj) -> None:
+    """Strict (no NaN), compact JSON; fully serialized before the file is opened."""
+    text = json.dumps(obj, separators=(",", ":"), allow_nan=False)
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def write_analysis(session, session_dir: Path, has_telemetry) -> None:
+    data = build_analysis(session, has_telemetry)
+    _write_json(session_dir / "analysis.json", data)
+    print(f"  analysis.json ({len(data['laps'])} laps, {len(data['results'])} results)")
+
+
+def write_weather(session, session_dir: Path) -> bool:
+    data = build_weather(session)
+    if data is None:
+        print("  weather.json skipped (no weather data)")
+        return False
+    _write_json(session_dir / "weather.json", data)
+    print(f"  weather.json ({len(data['time'])} samples)")
+    return True
+
+
+def process_session(year: int, event_name: str, session_type: str):
+    root = data_root()
+    enable_cache()
 
     print(f"Loading {year} {event_name} {session_type} ...")
     session = fastf1.get_session(year, event_name, session_type)
-    session.load(telemetry=True, laps=True, weather=False)
+    session.load(telemetry=True, laps=True, weather=True)
     print("Session loaded.")
 
     event_slug = slugify(event_name)
@@ -156,6 +323,8 @@ def process_session(year: int, event_name: str, session_type: str):
                         "x": np.round(_interp(dist, tel["X"].values, common_dist) * 0.1, 1).tolist() if "X" in tel.columns else [],
                         "y": np.round(_interp(dist, tel["Y"].values, common_dist) * 0.1, 1).tolist() if "Y" in tel.columns else [],
                         "z": np.round(_interp(dist, tel["Z"].values.astype(float) * 0.1, common_dist), 2).tolist() if "Z" in tel.columns else [],
+                        "driver_ahead": _driver_ahead(dist, tel, common_dist),
+                        "dist_ahead": _dist_ahead(dist, tel, common_dist),
                     }
 
                     with open(tel_dir / f"{abbr}_{lap_num}.json", "w") as f:
@@ -207,6 +376,16 @@ def process_session(year: int, event_name: str, session_type: str):
 
     print(f"  laps/ ({laps_saved} drivers)")
     print(f"  telemetry/ ({tel_saved} lap files)")
+
+    # ── analysis.json + weather.json ─────────────────────────────────────────
+    try:
+        write_analysis(session, session_dir, lambda a, n: (a, n) in generated_tel)
+    except Exception as e:
+        print(f"  Warning: analysis: {e}")
+    try:
+        write_weather(session, session_dir)
+    except Exception as e:
+        print(f"  Warning: weather: {e}")
     print(f"\nDone -> {year}/{event_slug}/{session_type}/")
 
 
