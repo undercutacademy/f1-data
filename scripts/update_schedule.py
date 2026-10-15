@@ -62,11 +62,19 @@ def update_year(year: int, root: Path):
         fmt = str(row.get("EventFormat", "conventional")).lower()
         session_codes = _SPRINT_SESSIONS if "sprint" in fmt else _CONVENTIONAL_SESSIONS
 
-        # Build session date map
+        # Build session date map, in UTC. Session{i}Date is the circuit's LOCAL
+        # wall-clock time (tz-aware); the [:16] slice below dropped its offset, and
+        # every reader (auto_process / local_ingest / backfill_year) treats the
+        # naive string as UTC — so sessions became eligible hours late in Asia
+        # (+8h at Singapore) and hours EARLY, possibly still live, in the Americas.
         session_date_map = {}
         for i in range(1, 6):
             sname = str(row.get(f"Session{i}", ""))
-            sdate = row.get(f"Session{i}Date")
+            sdate = row.get(f"Session{i}DateUtc")
+            if pd.isna(sdate):
+                local = row.get(f"Session{i}Date")
+                sdate = (local.tz_convert("UTC") if pd.notna(local) and getattr(local, "tzinfo", None)
+                         else local)
             if sname:
                 session_date_map[sname] = sdate if pd.notna(sdate) else None
 
@@ -81,9 +89,10 @@ def update_year(year: int, root: Path):
                         break
             session_date_str = ""
             if sdate is not None:
-                if hasattr(sdate, "tzinfo") and sdate.tzinfo is None:
-                    sdate = sdate.tz_localize("UTC")
-                session_date_str = str(sdate)[:16]
+                if getattr(sdate, "tzinfo", None) is not None:
+                    sdate = sdate.tz_convert("UTC")
+                # Naive "YYYY-MM-DD HH:MM", always UTC (readers assume UTC).
+                session_date_str = sdate.strftime("%Y-%m-%d %H:%M")
 
             # `available` reflects whether processed data is on disk so the
             # frontend only surfaces sessions a user can actually open.
