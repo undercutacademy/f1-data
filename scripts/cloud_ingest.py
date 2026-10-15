@@ -147,7 +147,7 @@ def commit_and_push(done) -> bool:
     keep = []
     for year, event, slug, stype in done:
         path = f"{year}/{slug}/{stype}"
-        if session_cached("origin/master", path):
+        if session_cached("origin/master", path) and PUSH_BRANCH == "master":
             log(f"  {event} {stype} already pushed by another ingester - dropping ours")
             continue
         keep.append((year, slug, stype, path))
