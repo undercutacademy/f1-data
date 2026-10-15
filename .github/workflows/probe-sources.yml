@@ -1,0 +1,56 @@
+name: Probe data source access
+
+# Diagnostic only: checks which F1 data sources answer a GitHub-hosted runner.
+# Read-only; writes nothing to the repo.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Runner network
+        run: curl -s https://ipinfo.io/json | grep -E '"ip"|"org"|"country"' || true
+
+      - name: F1 livetiming (what FastF1 uses)
+        run: |
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+          for u in \
+            https://livetiming.formula1.com/static/2026/Index.json \
+            https://livetiming.formula1.com/static/StreamingStatus.json ; do
+            echo "LIVETIMING $u default-UA=$(curl -s -o /dev/null -w '%{http_code}' "$u") browser-UA=$(curl -s -o /dev/null -w '%{http_code}' -A "$UA" "$u")"
+          done
+
+      - name: OpenF1
+        run: |
+          B=https://api.openf1.org/v1
+          SK=11388   # 2026 Singapore GP race
+          for ep in \
+            "sessions?year=2026&country_name=Singapore" \
+            "laps?session_key=$SK&driver_number=1" \
+            "stints?session_key=$SK" \
+            "car_data?session_key=$SK&driver_number=1" \
+            "location?session_key=$SK&driver_number=1" \
+            "weather?session_key=$SK" ; do
+            echo "OPENF1 $ep -> $(curl -s -o /dev/null -w '%{http_code} %{size_download}B %{time_total}s' "$B/$ep")"
+            sleep 2
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: FastF1 load
+        continue-on-error: true
+        run: |
+          pip install -q "fastf1==3.8.3"
+          python - <<'EOF'
+          import fastf1
+          s = fastf1.get_session(2026, "Singapore Grand Prix", "R")
+          s.load(laps=True, telemetry=False, weather=False, messages=False)
+          print("FASTF1 RESULT: laps =", len(s.laps))
+          EOF
