@@ -54,7 +54,10 @@ def update_year(year: int, root: Path):
         if pd.notna(first_session_date):
             if hasattr(first_session_date, "tzinfo") and first_session_date.tzinfo is None:
                 first_session_date = first_session_date.tz_localize("UTC")
-            if first_session_date > today:
+            # List an event a few days before it starts (sessions stay
+            # available=false until data lands) so the cloud ingester's
+            # self-scheduling can line up a check for FP1 in advance.
+            if first_session_date > today + pd.Timedelta(days=4):
                 continue
 
         event_name = str(row["EventName"])

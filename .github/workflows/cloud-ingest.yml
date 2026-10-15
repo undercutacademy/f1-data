@@ -2,8 +2,12 @@ name: Cloud Ingest (OpenF1)
 
 # Primary ingester since 2026-10: F1's livetiming feed rejects GitHub's IPs, so
 # FastF1 can't run here, but OpenF1 can. Its free tier releases each session
-# ~30 min after it ends; this checks every 15 min. scripts/local_ingest.py on a
-# home PC stays as a delayed fallback.
+# ~30 min after it ends. scripts/local_ingest.py on a home PC stays as a delayed
+# fallback.
+#
+# Triggers: the 15-min cron below is best-effort (GitHub delays or drops it), so
+# each run also starts the next one itself, timed for the next session's release
+# ("Chain next check"), and update-schedule.yml restarts the chain if it's idle.
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'
@@ -37,9 +41,11 @@ concurrency:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Long enough for the chain step to sleep until the next session's release.
+    timeout-minutes: 360
     permissions:
       contents: write
+      actions: write   # self-dispatch for the chain
     steps:
       # The data repo is huge: fetch trees but only the blobs of schedule files.
       - uses: actions/checkout@v4
@@ -78,3 +84,18 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           if [ "$FORCE" = "true" ]; then args+=(--force); fi
           python -B scripts/cloud_ingest.py "${args[@]}"
+
+      - name: Chain next check
+        # Normal runs only: not single-session, test-branch or dry runs.
+        if: always() && inputs.year == '' && inputs.test_branch == '' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          WAIT=$(python -B scripts/cloud_ingest.py --next-check)
+          if [ -z "$WAIT" ]; then
+            echo "No session due in the next 5.5 h - chain ends (update-schedule.yml restarts it)."
+            exit 0
+          fi
+          echo "Next check in ${WAIT}s"
+          sleep "$WAIT"
+          gh workflow run cloud-ingest.yml -R "${{ github.repository }}" --ref master

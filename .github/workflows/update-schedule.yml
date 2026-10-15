@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: write   # watchdog: start cloud-ingest.yml
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,3 +60,18 @@ jobs:
       - name: Purge jsDelivr cache
         if: steps.commit.outputs.pushed == 'true'
         run: bash scripts/purge_jsdelivr.sh
+
+      # Watchdog for the cloud ingester's self-scheduling chain: if nothing is
+      # running or queued, start it (it ends itself when no session is due).
+      - name: Start cloud ingester if idle
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          busy=$(gh run list -R "${{ github.repository }}" -w cloud-ingest.yml -L 20 --json status --jq '[.[] | select(.status != "completed")] | length')
+          if [ "$busy" = "0" ]; then
+            gh workflow run cloud-ingest.yml -R "${{ github.repository }}" --ref master
+            echo "Started cloud ingester."
+          else
+            echo "Cloud ingester already running or queued ($busy)."
+          fi

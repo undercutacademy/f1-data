@@ -34,6 +34,14 @@ OPENF1_RELEASE = timedelta(minutes=35)
 # Testing: push to a throwaway branch instead of master (no CDN purge).
 PUSH_BRANCH = os.environ.get("PUSH_BRANCH") or "master"
 
+# Self-chaining (see --next-check): nominal session lengths to estimate when OpenF1
+# releases each one, how soon to re-check a session that's due but not out yet
+# (overrunning race), and the longest a run may sleep before starting the next
+# (the job's own limit is 6 h).
+SESSION_HOURS = {"FP1": 1, "FP2": 1, "FP3": 1, "Q": 1, "SQ": 0.75, "S": 1, "R": 2}
+RECHECK = timedelta(minutes=10)
+MAX_SLEEP = timedelta(hours=5, minutes=30)
+
 
 def log(msg: str) -> None:
     print(f"[{datetime.now(timezone.utc):%H:%M:%S}] {msg}", flush=True)
@@ -87,6 +95,37 @@ def candidates():
                 if not session_cached("HEAD", path):
                     out.append((start, year, ev["name"], ev["slug"], s["type"]))
     return sorted(out, reverse=True)
+
+
+def next_check_seconds():
+    """Seconds until the next run is worth starting, or None to end the chain.
+
+    GitHub's cron is best-effort (a new */15 schedule ran zero times in its first
+    hours), so during race weekends each run starts the next one itself, timed
+    for when OpenF1 should release the next un-ingested session. Sessions not
+    yet started count too, so a chain started by the 6-hourly watchdog carries
+    on into the next session."""
+    now = datetime.now(timezone.utc)
+    waits = []
+    for year in sorted({now.year, (now - timedelta(days=1)).year}):
+        ef = ROOT / str(year) / "events.json"
+        if not ef.exists():
+            continue
+        for ev in json.loads(ef.read_text(encoding="utf-8")):
+            sf = ROOT / str(year) / ev["slug"] / "sessions.json"
+            if not sf.exists():
+                continue
+            for s in json.loads(sf.read_text(encoding="utf-8")):
+                start = parse_utc(s.get("date", ""))
+                if not start or start < now - timedelta(days=2):
+                    continue
+                due = start + timedelta(hours=SESSION_HOURS.get(s["type"], 1)) + OPENF1_RELEASE
+                if due - now > MAX_SLEEP:
+                    continue
+                if session_cached("HEAD", f"{year}/{ev['slug']}/{s['type']}"):
+                    continue
+                waits.append(max(due - now, RECHECK))
+    return int(min(waits).total_seconds()) if waits else None
 
 
 def openf1_ready(year, event, stype, start):
@@ -186,7 +225,14 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--force", action="store_true",
                     help="with --only: rebuild even if the session already has telemetry")
+    ap.add_argument("--next-check", action="store_true",
+                    help="print seconds until the next run is useful (empty = none soon) and exit")
     args = ap.parse_args()
+
+    if args.next_check:
+        wait = next_check_seconds()
+        print("" if wait is None else wait)
+        return 0
 
     if args.only:
         year, event, stype = int(args.only[0]), args.only[1], args.only[2]
