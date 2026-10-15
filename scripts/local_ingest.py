@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / ".ingest.lock"
 LOCK_STALE_HOURS = 8
 RECENT_SESSION_HOURS = 6   # only wait-poll for sessions that started this recently
+# The cloud ingester (GitHub Actions + OpenF1, .github/workflows/cloud-ingest.yml)
+# normally has a session up ~45 min after it ends. This PC is the fallback: it
+# only steps in once the cloud has had this long past the usual buffer.
+CLOUD_FIRST_GRACE = timedelta(hours=1.5)
 POLL_INTERVAL = 60         # seconds between availability probes
 
 
@@ -148,7 +152,7 @@ def pending_sessions():
                 dt = parse_date(s.get("date", ""))
                 if not dt or dt < cutoff:
                     continue
-                if not session_likely_over(dt, s["type"], now):
+                if not session_likely_over(dt + CLOUD_FIRST_GRACE, s["type"], now):
                     continue  # not started, or possibly still running
                 if not session_cached(year, ev["slug"], s["type"]):
                     out.append((dt, year, ev["name"], s["type"]))
@@ -259,7 +263,9 @@ def commit_push_purge() -> bool:
         behind = git("rev-list", "--count", "HEAD..origin/master").stdout.strip()
         if behind != "0":
             log(f"Remote moved ({behind} commits) - merging (never rebase here).")
-            m = git("merge", "origin/master", "-m", "Merge remote changes (local ingest)",
+            # -X theirs: if the cloud ingester pushed the same session meanwhile,
+            # keep its copy instead of stopping on an add/add conflict.
+            m = git("merge", "-X", "theirs", "origin/master", "-m", "Merge remote changes (local ingest)",
                     check=False)
             if m.returncode != 0:
                 log(f"MERGE FAILED: {m.stderr[:200]} - resolve manually.")

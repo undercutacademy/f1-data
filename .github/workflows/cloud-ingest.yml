@@ -1,0 +1,80 @@
+name: Cloud Ingest (OpenF1)
+
+# Primary ingester since 2026-10: F1's livetiming feed rejects GitHub's IPs, so
+# FastF1 can't run here, but OpenF1 can. Its free tier releases each session
+# ~30 min after it ends; this checks every 15 min. scripts/local_ingest.py on a
+# home PC stays as a delayed fallback.
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      year:
+        description: 'Only this session: year (leave all three empty for normal run)'
+        required: false
+      event:
+        description: 'Only this session: event name, e.g. Dutch Grand Prix'
+        required: false
+      session:
+        description: 'Only this session: R, Q, S, SQ, FP1, FP2, FP3'
+        required: false
+      dry_run:
+        description: 'List what would be processed, change nothing'
+        type: boolean
+        default: false
+      force:
+        description: 'With a single session: rebuild even if it already has telemetry'
+        type: boolean
+        default: false
+      test_branch:
+        description: 'Testing: push to this branch instead of master (no CDN purge)'
+        required: false
+
+concurrency:
+  group: cloud-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      # The data repo is huge: fetch trees but only the blobs of schedule files.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /index.json
+            /*/events.json
+            /*/*/sessions.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -q numpy
+
+      - name: Ingest
+        env:
+          YEAR: ${{ inputs.year }}
+          EVENT: ${{ inputs.event }}
+          SESSION: ${{ inputs.session }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          FORCE: ${{ inputs.force }}
+          PUSH_BRANCH: ${{ inputs.test_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          args=()
+          if [ -n "$YEAR" ] && [ -n "$EVENT" ] && [ -n "$SESSION" ]; then
+            args+=(--only "$YEAR" "$EVENT" "$SESSION")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          python -B scripts/cloud_ingest.py "${args[@]}"

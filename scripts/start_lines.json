@@ -1,0 +1,224 @@
+{
+ "70th-anniversary-grand-prix": {
+  "x": -175.9,
+  "y": 120.7,
+  "source": "2020/70th-anniversary-grand-prix/R",
+  "laps": 12
+ },
+ "abu-dhabi-grand-prix": {
+  "x": 54.3,
+  "y": 207.6,
+  "source": "2025/abu-dhabi-grand-prix/R",
+  "laps": 12
+ },
+ "australian-grand-prix": {
+  "x": -116.2,
+  "y": -136.6,
+  "source": "2026/australian-grand-prix/R",
+  "laps": 12
+ },
+ "austrian-grand-prix": {
+  "x": -38.0,
+  "y": -160.8,
+  "source": "2026/austrian-grand-prix/R",
+  "laps": 12
+ },
+ "azerbaijan-grand-prix": {
+  "x": 106.3,
+  "y": -59.2,
+  "source": "2026/azerbaijan-grand-prix/R",
+  "laps": 12
+ },
+ "bahrain-grand-prix": {
+  "x": -221.7,
+  "y": -265.2,
+  "source": "2026/bahrain-grand-prix/R",
+  "laps": 12
+ },
+ "barcelona-grand-prix": {
+  "x": 141.4,
+  "y": -19.2,
+  "source": "2026/barcelona-grand-prix/R",
+  "laps": 12
+ },
+ "belgian-grand-prix": {
+  "x": -43.0,
+  "y": 129.9,
+  "source": "2026/belgian-grand-prix/R",
+  "laps": 12
+ },
+ "brazilian-grand-prix": {
+  "x": -424.2,
+  "y": -177.4,
+  "source": "2019/brazilian-grand-prix/R",
+  "laps": 12
+ },
+ "british-grand-prix": {
+  "x": -177.4,
+  "y": 118.7,
+  "source": "2026/british-grand-prix/R",
+  "laps": 12
+ },
+ "canadian-grand-prix": {
+  "x": 335.3,
+  "y": 93.3,
+  "source": "2026/canadian-grand-prix/R",
+  "laps": 12
+ },
+ "chinese-grand-prix": {
+  "x": 42.8,
+  "y": -147.1,
+  "source": "2026/chinese-grand-prix/R",
+  "laps": 12
+ },
+ "dutch-grand-prix": {
+  "x": -0.2,
+  "y": 246.8,
+  "source": "2026/dutch-grand-prix/R",
+  "laps": 12
+ },
+ "eifel-grand-prix": {
+  "x": 173.1,
+  "y": -27.1,
+  "source": "2020/eifel-grand-prix/R",
+  "laps": 12
+ },
+ "emilia-romagna-grand-prix": {
+  "x": -149.1,
+  "y": -160.4,
+  "source": "2025/emilia-romagna-grand-prix/R",
+  "laps": 12
+ },
+ "french-grand-prix": {
+  "x": -32.3,
+  "y": -147.3,
+  "source": "2022/french-grand-prix/R",
+  "laps": 12
+ },
+ "german-grand-prix": {
+  "x": -67.5,
+  "y": -210.9,
+  "source": "2019/german-grand-prix/R",
+  "laps": 12
+ },
+ "hungarian-grand-prix": {
+  "x": -109.8,
+  "y": -31.0,
+  "source": "2026/hungarian-grand-prix/R",
+  "laps": 12
+ },
+ "italian-grand-prix": {
+  "x": -138.4,
+  "y": -80.0,
+  "source": "2026/italian-grand-prix/R",
+  "laps": 12
+ },
+ "japanese-grand-prix": {
+  "x": 160.3,
+  "y": -53.7,
+  "source": "2026/japanese-grand-prix/R",
+  "laps": 12
+ },
+ "las-vegas-grand-prix": {
+  "x": 203.1,
+  "y": -66.1,
+  "source": "2025/las-vegas-grand-prix/R",
+  "laps": 12
+ },
+ "mexican-grand-prix": {
+  "x": -110.3,
+  "y": 127.5,
+  "source": "2019/mexican-grand-prix/R",
+  "laps": 12
+ },
+ "mexico-city-grand-prix": {
+  "x": -22.0,
+  "y": 121.6,
+  "source": "2025/mexico-city-grand-prix/R",
+  "laps": 12
+ },
+ "miami-grand-prix": {
+  "x": 181.7,
+  "y": 14.2,
+  "source": "2026/miami-grand-prix/R",
+  "laps": 12
+ },
+ "monaco-grand-prix": {
+  "x": -766.2,
+  "y": -655.7,
+  "source": "2026/monaco-grand-prix/R",
+  "laps": 12
+ },
+ "portuguese-grand-prix": {
+  "x": -183.4,
+  "y": 138.6,
+  "source": "2021/portuguese-grand-prix/R",
+  "laps": 12
+ },
+ "qatar-grand-prix": {
+  "x": -106.0,
+  "y": -106.0,
+  "source": "2025/qatar-grand-prix/R",
+  "laps": 12
+ },
+ "russian-grand-prix": {
+  "x": 129.8,
+  "y": -39.5,
+  "source": "2021/russian-grand-prix/R",
+  "laps": 12
+ },
+ "s-o-paulo-grand-prix": {
+  "x": -369.0,
+  "y": -521.2,
+  "source": "2025/s-o-paulo-grand-prix/R",
+  "laps": 12
+ },
+ "sakhir-grand-prix": {
+  "x": -37.3,
+  "y": 118.6,
+  "source": "2020/sakhir-grand-prix/R",
+  "laps": 12
+ },
+ "saudi-arabian-grand-prix": {
+  "x": -130.6,
+  "y": 25.9,
+  "source": "2025/saudi-arabian-grand-prix/R",
+  "laps": 12
+ },
+ "singapore-grand-prix": {
+  "x": 105.1,
+  "y": -44.6,
+  "source": "2026/singapore-grand-prix/R",
+  "laps": 12
+ },
+ "spanish-grand-prix": {
+  "x": 547.6,
+  "y": -137.6,
+  "source": "2026/spanish-grand-prix/R",
+  "laps": 12
+ },
+ "styrian-grand-prix": {
+  "x": 124.2,
+  "y": -117.0,
+  "source": "2021/styrian-grand-prix/R",
+  "laps": 12
+ },
+ "turkish-grand-prix": {
+  "x": 43.2,
+  "y": -143.7,
+  "source": "2021/turkish-grand-prix/R",
+  "laps": 12
+ },
+ "tuscan-grand-prix": {
+  "x": -93.5,
+  "y": -29.4,
+  "source": "2020/tuscan-grand-prix/R",
+  "laps": 12
+ },
+ "united-states-grand-prix": {
+  "x": -132.3,
+  "y": -39.8,
+  "source": "2025/united-states-grand-prix/R",
+  "laps": 12
+ }
+}
