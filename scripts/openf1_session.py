@@ -37,6 +37,10 @@ import numpy as np
 API = "https://api.openf1.org/v1"
 NUM_POINTS = 500
 QUICKLAP_THRESHOLD = 1.07  # FastF1's pick_quicklaps default, relative to the driver's best
+# Slow / unfinished laps get telemetry too (aborted laps, crashes, cool-downs), except
+# windows longer than this many best laps: those are garage waits under a red flag.
+MAX_LAP_FACTOR = 3.0
+STOPPED_KMH = 5.0  # an unfinished lap ends where the car last moved faster than this
 # Free tier: 3 req/s and 30 req/min. Stay just under the per-minute cap.
 MIN_REQUEST_GAP_S = 2.1
 
@@ -224,10 +228,19 @@ def corner_list(circuit, ref_tel):
     return out
 
 
-def lap_telemetry(car, loc, t0, t1, ahead=None):
-    """Pre-normalized 500-point telemetry for one lap, same keys as process_session."""
+def lap_telemetry(car, loc, t0, t1, ahead=None, trim_stop=False):
+    """Pre-normalized 500-point telemetry for one lap, same keys as process_session.
+
+    trim_stop: the lap has no recorded time (crash, stop on track, aborted under a
+    red flag), so end it where the car last moved instead of at t1."""
     ct = car["t"]
     inside = (ct > t0) & (ct < t1)
+    if trim_stop:
+        moving = np.nonzero(inside & (car["speed"] >= STOPPED_KMH))[0]
+        if len(moving) < 50:
+            return None
+        t1 = min(t1, float(ct[moving[-1]]))
+        inside = (ct > t0) & (ct < t1)
     if inside.sum() < 50:
         return None
     # Samples inside the lap plus exact boundary points at the lap's start and end:
@@ -520,16 +533,28 @@ def process(year: int, event_name: str, session_type: str, start_utc: datetime |
             n, lt = l["lap_number"], l.get("lap_duration")
             start, end = bounds.get((num, n), (None, None))
 
-            valid = False
-            if threshold and lt and lt <= threshold and start is not None and end is not None and len(car["t"]):
-                tel = lap_telemetry(car, loc, start, end, ahead_fn_for.get(num))
+            # is_valid: a representative quick lap (as FastF1's pick_quicklaps).
+            # has_telemetry: a telemetry file exists, which slow and unfinished laps
+            # get too so they can be opened (e.g. a crash on the final attempt).
+            valid = has_tel = False
+            if start is not None and len(car["t"]):
+                max_len = best * MAX_LAP_FACTOR if best else None
+                lap_end = end
+                if not lt and max_len:
+                    # Unfinished: the lap ends at the next one's start, or (last lap)
+                    # nowhere; lap_telemetry trims it where the car stopped.
+                    lap_end = min(end, start + max_len) if end is not None else start + max_len
+                too_long = bool(lt and max_len and lt > max_len)
+                tel = (lap_telemetry(car, loc, start, lap_end, ahead_fn_for.get(num), trim_stop=not lt)
+                       if lap_end is not None and not too_long else None)
                 if tel:
                     with open(session_dir / "telemetry" / f"{code}_{n}.json", "w") as f:
                         json.dump(tel, f, separators=(",", ":"))
-                    valid = True
+                    has_tel = True
+                    valid = bool(threshold and lt and lt <= threshold and end is not None)
                     generated.add((code, n))
                     tel_saved += 1
-                    if ref_time is None or lt < ref_time:
+                    if valid and (ref_time is None or lt < ref_time):
                         ref_tel, ref_time = tel, lt
 
             st = stint_for(num, n)
@@ -550,6 +575,7 @@ def process(year: int, event_name: str, session_type: str, start_utc: datetime |
                 "is_personal_best": is_pb,
                 "is_fastest": bool(lt and best and abs(lt - best) < 0.001),
                 "is_valid": valid,
+                "has_telemetry": has_tel,
             })
 
             analysis_laps.append({
@@ -567,7 +593,7 @@ def process(year: int, event_name: str, session_type: str, start_utc: datetime |
                 "track_status": lap_status(windows, start, end) if start and end else "",
                 "is_accurate": True,
                 "deleted": None,
-                "has_telemetry": valid,
+                "has_telemetry": has_tel,
             })
 
         with open(session_dir / "laps" / f"{code}.json", "w") as f:

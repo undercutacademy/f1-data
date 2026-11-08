@@ -26,6 +26,10 @@ import pandas as pd
 from pathlib import Path
 
 NUM_POINTS = 500
+# Slow / unfinished laps get telemetry too (aborted laps, crashes, cool-downs), except
+# laps longer than this many best laps: those are garage waits under a red flag.
+MAX_LAP_FACTOR = 3.0
+STOPPED_KMH = 5.0  # an unfinished lap ends where the car last moved faster than this
 ANALYSIS_VERSION = 1
 
 
@@ -61,6 +65,29 @@ def _interp(dist, vals, common_dist):
 def _nearest_before(dist, vals, common_dist):
     idx = np.clip(np.searchsorted(dist, common_dist, side="right") - 1, 0, len(dist) - 1)
     return vals[idx]
+
+
+def _lap_raw_telemetry(session, lap, max_len):
+    """Merged car + position telemetry for one lap, or None.
+
+    A lap without a time (crash, stop on track, aborted under a red flag) runs from
+    its start until the car stops, capped at max_len (a Timedelta) or the lap's end."""
+    if pd.notna(lap.get("LapTime")):
+        return lap.get_telemetry()
+    t0 = lap.get("LapStartTime")
+    if pd.isna(t0) or max_len is None:
+        return None
+    t1 = t0 + max_len
+    if pd.notna(lap.get("Time")):
+        t1 = min(t1, lap["Time"])
+    num = str(lap["DriverNumber"])
+    car = session.car_data[num].slice_by_time(t0, t1, interpolate_edges=True)
+    pos = session.pos_data[num].slice_by_time(t0, t1, interpolate_edges=True)
+    tel = pos.merge_channels(car)
+    moving = np.nonzero(tel["Speed"].values >= STOPPED_KMH)[0] if "Speed" in tel.columns else []
+    if len(moving) < 50:
+        return None
+    return tel.iloc[: moving[-1] + 1]
 
 
 def _driver_ahead(dist, tel, common_dist) -> list:
@@ -291,13 +318,24 @@ def process_session(year: int, event_name: str, session_type: str):
                     fastest_time = lt.total_seconds() if pd.notna(lt) else None
 
             # ── telemetry files ──────────────────────────────────────────────
-            quick_laps = driver_laps.pick_quicklaps()
-            for _, lap in quick_laps.iterrows():
+            # Every lap gets one when it can (slow and unfinished laps too, so they
+            # can be opened); is_valid stays "quick lap", has_telemetry = file exists.
+            quick = {int(n) for n in valid["LapNumber"].dropna()}
+            max_len = None
+            if fastest_time:
+                max_len = pd.Timedelta(seconds=fastest_time * MAX_LAP_FACTOR)
+            for _, lap in driver_laps.iterrows():
                 lap_num = int(lap["LapNumber"]) if pd.notna(lap.get("LapNumber")) else None
                 if lap_num is None:
                     continue
+                lt = lap.get("LapTime")
+                if pd.notna(lt) and max_len is not None and lt > max_len:
+                    continue
                 try:
-                    tel = lap.get_telemetry().add_distance()
+                    tel = _lap_raw_telemetry(session, lap, max_len)
+                    if tel is None or tel.empty:
+                        continue
+                    tel = tel.add_distance()
                     if tel is None or tel.empty or len(tel) < 50:
                         continue
 
@@ -364,7 +402,8 @@ def process_session(year: int, event_name: str, session_type: str):
                     "tyre_life": int(lap.get("TyreLife")) if pd.notna(lap.get("TyreLife")) else 0,
                     "is_personal_best": bool(lap.get("IsPersonalBest", False)),
                     "is_fastest": is_fastest,
-                    "is_valid": (abbr, lap_num) in generated_tel,
+                    "is_valid": lap_num in quick and (abbr, lap_num) in generated_tel,
+                    "has_telemetry": (abbr, lap_num) in generated_tel,
                 })
 
             with open(laps_dir / f"{abbr}.json", "w") as f:
