@@ -180,13 +180,14 @@ def purge_jsdelivr(paths) -> None:
     log(f"Purge requested for {len(paths)} files")
 
 
-def commit_and_push(done) -> bool:
-    """Commit the processed sessions; skip any the fallback ingester pushed meanwhile."""
+def commit_and_push(done, force=False) -> bool:
+    """Commit the processed sessions; skip any the fallback ingester pushed meanwhile
+    (unless force: a deliberate rebuild of a session that is already there)."""
     git("fetch", "--quiet", "origin", "master")
     keep = []
     for year, event, slug, stype in done:
         path = f"{year}/{slug}/{stype}"
-        if session_cached("origin/master", path) and PUSH_BRANCH == "master":
+        if session_cached("origin/master", path) and PUSH_BRANCH == "master" and not force:
             log(f"  {event} {stype} already pushed by another ingester - dropping ours")
             continue
         keep.append((year, slug, stype, path))
@@ -269,7 +270,7 @@ def main() -> int:
         else:
             log(f"  {event} {stype}: processing produced no telemetry - will retry next run")
 
-    if done and not commit_and_push(done):
+    if done and not commit_and_push(done, force=args.force):
         return 1
     return 0
 
