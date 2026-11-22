@@ -132,7 +132,7 @@ def session_cached(year: int, slug: str, stype: str) -> bool:
 
 
 def pending_sessions():
-    """(date, year, event_name, session_type) for ended, uncached sessions <14d old."""
+    """(date, year, event_name, session_type, slug) for ended, uncached sessions <14d old."""
     sys.path.insert(0, str(ROOT / "scripts"))
     from auto_process import session_likely_over
 
@@ -155,7 +155,7 @@ def pending_sessions():
                 if not session_likely_over(dt + CLOUD_FIRST_GRACE, s["type"], now):
                     continue  # not started, or possibly still running
                 if not session_cached(year, ev["slug"], s["type"]):
-                    out.append((dt, year, ev["name"], s["type"]))
+                    out.append((dt, year, ev["name"], s["type"], ev["slug"]))
     return sorted(out, reverse=True)
 
 
@@ -171,6 +171,35 @@ def data_available(year: int, event: str, stype: str) -> bool:
     except Exception as e:
         log(f"Probe: data not available yet ({str(e)[:80]})")
         return False
+
+
+def f1tv_signed_in() -> bool:
+    """Since ~Oct 2026 livetiming returns 401 without an F1 TV token. Without one,
+    FastF1 only logs a warning and loads no laps, so auto_process wrote drivers.json
+    alone and this script said "Nothing new to commit" for weeks. Check up front."""
+    try:
+        from fastf1.internals.f1account import get_token, token_manager
+    except ImportError:
+        log("F1TV SIGN-IN UNSUPPORTED: FastF1 < 3.9 - update the version in ingest.bat.")
+        return False
+    token = token_manager.get_stored()
+    if token is not None and token.is_valid():
+        days = (token.expires_at - time.time()) / 86400
+        if days < 2:
+            log(f"F1 TV token expires in {days:.1f} days - run f1tv-signin.bat soon.")
+        return True
+    if os.environ.get("F1_USERNAME") and os.environ.get("F1_PASSWORD"):
+        try:
+            get_token(force_renew=True, method="password")
+            log("F1 TV token renewed from F1_USERNAME / F1_PASSWORD.")
+            return True
+        except Exception as e:
+            log(f"F1TV SIGN-IN FAILED: {str(e)[:120]}")
+            return False
+    state = "expired" if token is not None else "missing"
+    log(f"F1TV SIGN-IN NEEDED: token {state} - run f1tv-signin.bat. "
+        "Livetiming serves no laps without it; skipping processing.")
+    return False
 
 
 # ---------------------------------------------------------------- steps
@@ -305,6 +334,8 @@ def main() -> int:
 
         newest = pend[0]
         log(f"Pending: {len(pend)} session(s); newest: {newest[1]} {newest[2]} {newest[3]}")
+        if not f1tv_signed_in():
+            return 1
 
         started_ago = datetime.now(timezone.utc) - newest[0]
         if args.max_wait > 0 and started_ago < timedelta(hours=RECENT_SESSION_HOURS):
@@ -318,6 +349,10 @@ def main() -> int:
                 log("Wait budget exhausted; processing whatever is ready.")
 
         run_auto_process()  # rc ignored: partial success still worth committing
+        for _, year, event, stype, slug in pend:
+            if not session_cached(year, slug, stype):
+                log(f"NO TELEMETRY: {year} {event} {stype} - FastF1 loaded no laps "
+                    "(not released yet, or livetiming refused us); will retry.")
         run_update_schedule()  # flip `available` for whatever telemetry just landed
         return 0 if commit_push_purge() else 1
     finally:

@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,12 +35,17 @@ OPENF1_RELEASE = timedelta(minutes=35)
 # Testing: push to a throwaway branch instead of master (no CDN purge).
 PUSH_BRANCH = os.environ.get("PUSH_BRANCH") or "master"
 
-# Self-chaining (see --next-check): nominal session lengths to estimate when OpenF1
-# releases each one, how soon to re-check a session that's due but not out yet
-# (overrunning race), and the longest a run may sleep before starting the next
-# (the job's own limit is 6 h).
-SESSION_HOURS = {"FP1": 1, "FP2": 1, "FP3": 1, "Q": 1, "SQ": 0.75, "S": 1, "R": 2}
-RECHECK = timedelta(minutes=10)
+# Shortest realistic length of each session: the earliest it can end, so the
+# earliest OpenF1 can release it. Used both to time the self-chaining wake-up
+# (see --next-check) and as the release gate in openf1_ready(). Races are slotted
+# 2 h but usually finish in ~1.5 h; waiting for the slot's end cost 30-45 min on
+# every race (2026 Las Vegas: flag 05:31, OpenF1 out ~06:00, our gate 06:35).
+# Starting early is safe: OpenF1 returns 401 to everything while a session is
+# live, and openf1_ready() also requires official results and, for races, every
+# lap of the winner. Then: how soon to re-check a session that is due but not out
+# yet, and the longest a run may sleep before starting the next (job limit 6 h).
+SESSION_HOURS = {"FP1": 1, "FP2": 1, "FP3": 1, "Q": 1, "SQ": 0.75, "S": 0.5, "R": 1.33}
+RECHECK = timedelta(minutes=5)
 MAX_SLEEP = timedelta(hours=5, minutes=30)
 
 
@@ -140,6 +146,8 @@ def openf1_ready(year, event, stype, start):
         log(f"  {event} {stype}: not in OpenF1 yet")
         return None
     end = datetime.fromisoformat(s["date_end"].replace("Z", "+00:00"))
+    earliest = datetime.fromisoformat(s["date_start"].replace("Z", "+00:00"))         + timedelta(hours=SESSION_HOURS.get(stype, 1))
+    end = min(end, earliest)
     if datetime.now(timezone.utc) < end + OPENF1_RELEASE:
         log(f"  {event} {stype}: OpenF1 releases it after {end + OPENF1_RELEASE:%H:%M} UTC")
         return None
@@ -258,13 +266,22 @@ def main() -> int:
 
     done = []
     for start, year, event, slug, stype in todo:
-        if not openf1_ready(year, event, stype, start):
-            continue
-        if args.dry_run:
-            log(f"  would process {year} {event} {stype}")
-            continue
-        log(f"Processing {year} {event} {stype} from OpenF1")
-        if of1.process(year, event, stype, start):
+        try:
+            if not openf1_ready(year, event, stype, start):
+                continue
+            if args.dry_run:
+                log(f"  would process {year} {event} {stype}")
+                continue
+            log(f"Processing {year} {event} {stype} from OpenF1")
+            ok = of1.process(year, event, stype, start)
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                raise
+            # Free tier: every request is refused from ~20 min before a live session
+            # until ~30-60 min after it ends. Not an error - the chain re-checks.
+            log(f"  {event} {stype}: OpenF1 is locked (a session is live or just ended) - retrying next run")
+            break
+        if ok:
             mark_available(year, slug, stype)
             done.append((year, event, slug, stype))
         else:
