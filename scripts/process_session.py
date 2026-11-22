@@ -71,15 +71,19 @@ def _lap_raw_telemetry(session, lap, max_len):
     """Merged car + position telemetry for one lap, or None.
 
     A lap without a time (crash, stop on track, aborted under a red flag) runs from
-    its start until the car stops, capped at max_len (a Timedelta) or the lap's end."""
+    its start until the car stops, capped at max_len (a Timedelta) or the lap's end.
+    With no max_len (the driver has no quick lap to compare against, e.g. a wet
+    session of installation laps only: 2026 Las Vegas FP1) the lap's own end is the
+    cap, as in openf1_session.py."""
     if pd.notna(lap.get("LapTime")):
         return lap.get_telemetry()
     t0 = lap.get("LapStartTime")
-    if pd.isna(t0) or max_len is None:
+    t_end = lap.get("Time")
+    if pd.isna(t0) or (max_len is None and pd.isna(t_end)):
         return None
-    t1 = t0 + max_len
-    if pd.notna(lap.get("Time")):
-        t1 = min(t1, lap["Time"])
+    t1 = t0 + max_len if max_len is not None else t_end
+    if pd.notna(t_end):
+        t1 = min(t1, t_end)
     num = str(lap["DriverNumber"])
     car = session.car_data[num].slice_by_time(t0, t1, interpolate_edges=True)
     pos = session.pos_data[num].slice_by_time(t0, t1, interpolate_edges=True)
